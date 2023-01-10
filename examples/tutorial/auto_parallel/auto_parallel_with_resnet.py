@@ -198,3 +198,30 @@ def main():
 
 if __name__ == '__main__':
     main()
+#
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+    scheduler = CosineAnnealingLR(optimizer, T_max=len(train_dataloader), eta_min=0.01)
+    logger.info("Start training")
+    for step, (img, label) in enumerate(tqdm(train_dataloader)):
+        img, label = img.to(gpc.main_device), label.to(gpc.main_device)
+        optimizer.zero_grad()
+        logits = model(img)
+        loss = F.cross_entropy(logits, label)
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+    logger.info("Start testing")
+    model.eval()
+    test_loss = 0
+    correct = 0
+    with torch.no_grad():
+        for img, label in tqdm(test_dataloader):
+            img, label = img.to(gpc.main_device), label.to(gpc.main_device)
+            logits = model(img)
+            loss = F.cross_entropy(logits, label, reduction='sum')
+            test_loss += loss.item()
+            pred = logits.argmax(dim=1, keepdim=True)
+            correct += pred.eq(label.view_as(pred)).sum().item()
+    test_loss /= len(test_dataloader.dataset)
+    accuracy = correct / len(test_dataloader.dataset)
+    logger.info(f"Test set: Average loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_dataloader.dataset)}, {accuracy:.4f}")
