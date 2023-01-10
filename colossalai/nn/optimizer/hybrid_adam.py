@@ -2,6 +2,7 @@ from typing import Any, Optional
 
 import torch
 
+from colossalai.kernel.op_builder import CPUAdamBuilder, FusedOptimBuilder
 from colossalai.registry import OPTIMIZERS
 from colossalai.utils import multi_tensor_applier
 
@@ -18,7 +19,7 @@ class HybridAdam(NVMeOptimizer):
       * Parameters on GPU and gradients on GPU is allowed.
       * Parameters on GPU and gradients on CPU is **not** allowed.
 
-    Requires ColossalAI to be installed via ``pip install .``
+    `HybriadAdam` requires CUDA extensions which can be built during installation or runtime.
 
     This version of Hybrid Adam is an hybrid of CPUAdam and FusedAdam.
 
@@ -77,7 +78,9 @@ class HybridAdam(NVMeOptimizer):
         super(HybridAdam, self).__init__(model_params, default_args, nvme_offload_fraction, nvme_offload_dir)
         self.adamw_mode = adamw_mode
 
-        from colossalai.kernel import cpu_optim, fused_optim
+        # build during runtime if not found
+        cpu_optim = CPUAdamBuilder().load()
+        fused_optim = FusedOptimBuilder().load()
         self.cpu_adam_op = cpu_optim.CPUAdamOptimizer(lr, betas[0], betas[1], eps, weight_decay, adamw_mode)
 
         self.gpu_adam_op = fused_optim.multi_tensor_adam

@@ -18,6 +18,7 @@ from colossalai.utils import get_current_device
 from colossalai.zero.utils.gemini_hook import GeminiZeROHook
 
 from .reducer import Reducer
+from .utils import get_static_torch_model
 
 try:
     from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX, _IncompatibleKeys
@@ -251,6 +252,7 @@ class ZeroDDP(ColoDDP):
                                                pin_memory=pin_memory)
             self.fp32_params.append(fp32_p)
             self.grads_device[p] = self.gemini_manager.default_device
+
         self.chunk_manager.close_all_groups()
         self._cast_buffers()
 
@@ -331,12 +333,10 @@ class ZeroDDP(ColoDDP):
         for tensor in chunk.get_tensors():
             self.grads_device[tensor] = device
 
-    def state_dict(self, destination=None, prefix='', keep_vars=False, only_rank_0: bool = True):
-        r"""Returns a dictionary containing a whole state of the module.
-
-        Both parameters and persistent buffers (e.g. running averages) are
-        included. Keys are corresponding parameter and buffer names.
-        Parameters and buffers set to ``None`` are not included.
+    def state_dict(self, destination=None, prefix='', keep_vars=False, only_rank_0: bool = True, strict: bool = True):
+        """
+        Args:
+            strict (bool): whether to reture the whole model state as the pytorch `Module.state_dict()`
 
         Returns:
             dict:
@@ -346,7 +346,30 @@ class ZeroDDP(ColoDDP):
 
             >>> module.state_dict().keys()
             ['bias', 'weight']
+        """
+        if strict:
+            assert keep_vars is False, "`state_dict` with parameter, `keep_vars=True`, is not supported now."
+            torch_model = get_static_torch_model(zero_ddp_model=self, only_rank_0=only_rank_0)
+            return torch_model.state_dict(destination=destination, prefix=prefix, keep_vars=keep_vars)
+        return self._non_strict_state_dict(destination=destination,
+                                           prefix=prefix,
+                                           keep_vars=keep_vars,
+                                           only_rank_0=only_rank_0)
 
+    def _non_strict_state_dict(self, destination=None, prefix='', keep_vars=False, only_rank_0: bool = True):
+        """Returns a dictionary containing a whole state of the module.
+
+        Both parameters and persistent buffers (e.g. running averages) are included.
+        Keys are corresponding parameter and buffer names.
+        Parameters and buffers set to ``None`` are not included.
+
+        Warning: The non strict state dict would ignore the parameters if the tensors of the parameters
+            are shared with other parameters which have been included in the dictionary.
+            When you need to load the state dict, you should set the argument `strict` to False.
+
+        Returns:
+            dict:
+                a dictionary containing a whole state of the module
         """
         if destination is None:
             destination = OrderedDict()
@@ -389,19 +412,6 @@ class ZeroDDP(ColoDDP):
             del temp_chunk
         return param_to_save_data
 
-    def torch_named_parameters(self):
-        """
-        get named_parameters() of self.module. It is used the same of PyTorch param and returns the real param.data payload.
-        It works the same as torch.Module named_parameters
-        """
-        params_list = [p for p in self.parameters(recurse=True)]
-        param_to_save_data = self._get_param_to_save_data(params_list, False)
-        for (name, _), p in zip(self.named_parameters(recurse=True), params_list):
-            if p is not None:
-                assert p in param_to_save_data, "Parameter '{}' is neglected in the chunk list".format(name)
-                record_parameter = param_to_save_data[p]
-                yield name, record_parameter
-
     def _save_to_state_dict(self, destination, prefix, keep_vars, only_rank_0=True):
         r"""Saves module state to `destination` dictionary, containing a state
         of the module, but not its descendants. This is called on every
@@ -418,6 +428,7 @@ class ZeroDDP(ColoDDP):
         assert keep_vars is False, "`state_dict` with parameter, `keep_vars=True`, is not supported now."
 
         param_to_save_data = self._get_param_to_save_data(self.fp32_params, only_rank_0)
+        # TODO: (HELSON) deal with ddp ignored parameters
         for (name, p), fp32_p in zip(self.named_parameters(), self.fp32_params):
             if p is not None:
                 assert fp32_p in param_to_save_data, "Parameter '{}' is neglected in the chunk list".format(name)

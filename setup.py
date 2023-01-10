@@ -1,5 +1,6 @@
 import os
 import re
+from datetime import datetime
 
 from setuptools import find_packages, setup
 
@@ -20,18 +21,22 @@ except ImportError:
     TORCH_AVAILABLE = False
     CUDA_HOME = None
 
-
 # ninja build does not work unless include_dirs are abs path
 this_dir = os.path.dirname(os.path.abspath(__file__))
 build_cuda_ext = False
 ext_modules = []
+is_nightly = int(os.environ.get('NIGHTLY', '0')) == 1
 
 if int(os.environ.get('CUDA_EXT', '0')) == 1:
     if not TORCH_AVAILABLE:
-        raise ModuleNotFoundError("PyTorch is not found while CUDA_EXT=1. You need to install PyTorch first in order to build CUDA extensions")
+        raise ModuleNotFoundError(
+            "PyTorch is not found while CUDA_EXT=1. You need to install PyTorch first in order to build CUDA extensions"
+        )
 
     if not CUDA_HOME:
-        raise RuntimeError("CUDA_HOME is not found while CUDA_EXT=1. You need to export CUDA_HOME environment vairable or install CUDA Toolkit first in order to build CUDA extensions")
+        raise RuntimeError(
+            "CUDA_HOME is not found while CUDA_EXT=1. You need to export CUDA_HOME environment vairable or install CUDA Toolkit first in order to build CUDA extensions"
+        )
 
     build_cuda_ext = True
 
@@ -133,62 +138,25 @@ if build_cuda_ext:
     # and
     # https://github.com/NVIDIA/apex/issues/456
     # https://github.com/pytorch/pytorch/commit/eb7b39e02f7d75c26d8a795ea8c7fd911334da7e#diff-4632522f237f1e4e728cb824300403ac
-    version_dependent_macros = ['-DVERSION_GE_1_1', '-DVERSION_GE_1_3', '-DVERSION_GE_1_5']
 
-    def cuda_ext_helper(name, sources, extra_cuda_flags, extra_cxx_flags=[]):
-        return CUDAExtension(
-            name=name,
-            sources=[os.path.join('colossalai/kernel/cuda_native/csrc', path) for path in sources],
-            include_dirs=[os.path.join(this_dir, 'colossalai/kernel/cuda_native/csrc/kernels/include')],
-            extra_compile_args={
-                'cxx': ['-O3'] + version_dependent_macros + extra_cxx_flags,
-                'nvcc': append_nvcc_threads(['-O3', '--use_fast_math'] + version_dependent_macros + extra_cuda_flags)
-            })
+    from op_builder import ALL_OPS
+    for name, builder_cls in ALL_OPS.items():
+        print(f'===== Building Extension {name} =====')
+        ext_modules.append(builder_cls().builder())
 
-    #### fused optim kernels ###
-    from op_builder import FusedOptimBuilder
-    ext_modules.append(FusedOptimBuilder().builder('colossalai._C.fused_optim'))
+# always put not nightly branch as the if branch
+# otherwise github will treat colossalai-nightly as the project name
+# and it will mess up with the dependency graph insights
+if not is_nightly:
+    version = get_version()
+    package_name = 'colossalai'
+else:
+    # use date as the nightly version
+    version = datetime.today().strftime('%Y.%m.%d')
+    package_name = 'colossalai-nightly'
 
-    #### N-D parallel kernels ###
-    cc_flag = []
-    for arch in torch.cuda.get_arch_list():
-        res = re.search(r'sm_(\d+)', arch)
-        if res:
-            arch_cap = res[1]
-            if int(arch_cap) >= 60:
-                cc_flag.extend(['-gencode', f'arch=compute_{arch_cap},code={arch}'])
-
-    extra_cuda_flags = [
-        '-U__CUDA_NO_HALF_OPERATORS__', '-U__CUDA_NO_HALF_CONVERSIONS__', '--expt-relaxed-constexpr',
-        '--expt-extended-lambda'
-    ]
-
-    from op_builder import ScaledSoftmaxBuilder
-    ext_modules.append(ScaledSoftmaxBuilder().builder('colossalai._C.scaled_upper_triang_masked_softmax'))
-
-    ext_modules.append(
-        cuda_ext_helper('colossalai._C.scaled_masked_softmax',
-                        ['scaled_masked_softmax.cpp', 'scaled_masked_softmax_cuda.cu'], extra_cuda_flags + cc_flag))
-
-    from op_builder import MOEBuilder
-    ext_modules.append(MOEBuilder().builder('colossalai._C.moe'))
-
-    extra_cuda_flags = ['-maxrregcount=50']
-
-    ext_modules.append(
-        cuda_ext_helper('colossalai._C.layer_norm', ['layer_norm_cuda.cpp', 'layer_norm_cuda_kernel.cu'],
-                        extra_cuda_flags + cc_flag))
-
-    ### MultiHeadAttn Kernel ####
-    from op_builder import MultiHeadAttnBuilder
-    ext_modules.append(MultiHeadAttnBuilder().builder('colossalai._C.multihead_attention'))
-
-    ### Gemini Adam kernel ####
-    from op_builder import CPUAdamBuilder
-    ext_modules.append(CPUAdamBuilder().builder('colossalai._C.cpu_optim'))
-
-setup(name='colossalai',
-      version=get_version(),
+setup(name=package_name,
+      version=version,
       packages=find_packages(exclude=(
           'benchmark',
           'docker',
@@ -227,4 +195,9 @@ setup(name='colossalai',
           'Topic :: Scientific/Engineering :: Artificial Intelligence',
           'Topic :: System :: Distributed Computing',
       ],
-      package_data={'colossalai': ['_C/*.pyi']})
+      package_data={
+          'colossalai': [
+              '_C/*.pyi', 'kernel/cuda_native/csrc/*', 'kernel/cuda_native/csrc/kernel/*',
+              'kernel/cuda_native/csrc/kernels/include/*'
+          ]
+      })

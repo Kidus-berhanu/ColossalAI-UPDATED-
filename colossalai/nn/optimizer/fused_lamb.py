@@ -9,8 +9,7 @@ from colossalai.utils import multi_tensor_applier
 class FusedLAMB(torch.optim.Optimizer):
     """Implements LAMB algorithm.
 
-    Currently GPU-only.  Requires ColossalAI to be installed via
-    ``pip install .``.
+    `FusedLAMB` requires CUDA extensions which can be built during installation or runtime.
 
     This version of fused LAMB implements 2 fusions.
 
@@ -76,7 +75,8 @@ class FusedLAMB(torch.optim.Optimizer):
                         max_grad_norm=max_grad_norm)
         super(FusedLAMB, self).__init__(params, defaults)
         if multi_tensor_applier.available:
-            from colossalai.kernel import fused_optim
+            from colossalai.kernel.op_builder import FusedOptimBuilder
+            fused_optim = FusedOptimBuilder().load()
 
             self.multi_tensor_l2norm = fused_optim.multi_tensor_l2norm
             # Skip buffer

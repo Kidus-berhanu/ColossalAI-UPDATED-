@@ -10,8 +10,7 @@ from colossalai.utils import multi_tensor_applier
 class FusedSGD(Optimizer):
     r"""Implements stochastic gradient descent (optionally with momentum).
 
-    Currently GPU-only.  Requires ColossalAI to be installed via
-    ``pip install .``.
+    `FusedSGD` requires CUDA extensions which can be built during installation or runtime.
 
     This version of fused SGD implements 2 fusions.
 
@@ -80,7 +79,8 @@ class FusedSGD(Optimizer):
         self.wd_after_momentum = wd_after_momentum
 
         if multi_tensor_applier.available:
-            from colossalai.kernel import fused_optim
+            from colossalai.kernel.op_builder import FusedOptimBuilder
+            fused_optim = FusedOptimBuilder().load()
 
             # Skip buffer
             self._dummy_overflow_buf = torch.tensor([0],

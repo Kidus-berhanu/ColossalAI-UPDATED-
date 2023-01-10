@@ -3,6 +3,7 @@ from typing import Optional
 
 import torch
 
+from colossalai.kernel.op_builder import CPUAdamBuilder
 from colossalai.registry import OPTIMIZERS
 
 from .nvme_optimizer import NVMeOptimizer
@@ -18,7 +19,7 @@ class CPUAdam(NVMeOptimizer):
       * Parameters on GPU and gradients on GPU is allowed.
       * Parameters on GPU and gradients on CPU is **not** allowed.
 
-    Requires ColossalAI to be installed via ``pip install .``.
+    `CPUAdam` requires CUDA extensions which can be built during installation or runtime.
 
     This version of CPU Adam accelates parameters updating on CPU with SIMD.
     Support of AVX2 or AVX512 is required.
@@ -76,12 +77,8 @@ class CPUAdam(NVMeOptimizer):
         default_args = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, bias_correction=bias_correction)
         super(CPUAdam, self).__init__(model_params, default_args, nvme_offload_fraction, nvme_offload_dir)
         self.adamw_mode = adamw_mode
-        try:
-            import colossalai._C.cpu_optim
-        except ImportError:
-            raise ImportError('Please install colossalai from source code to use CPUAdam')
-        self.cpu_adam_op = colossalai._C.cpu_optim.CPUAdamOptimizer(lr, betas[0], betas[1], eps, weight_decay,
-                                                                    adamw_mode)
+        cpu_adam = CPUAdamBuilder().load()
+        self.cpu_adam_op = cpu_adam.CPUAdamOptimizer(lr, betas[0], betas[1], eps, weight_decay, adamw_mode)
 
     def torch_adam_update(self,
                           data,

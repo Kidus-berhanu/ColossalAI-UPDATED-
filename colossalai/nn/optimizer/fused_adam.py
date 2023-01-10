@@ -9,8 +9,7 @@ from colossalai.utils import multi_tensor_applier
 class FusedAdam(torch.optim.Optimizer):
     """Implements Adam algorithm.
 
-    Currently GPU-only.  Requires ColossalAI to be installed via
-    ``pip install .``.
+    `FusedAdam` requires CUDA extensions which can be built during installation or runtime.
 
     This version of fused Adam implements 2 fusions.
 
@@ -65,7 +64,8 @@ class FusedAdam(torch.optim.Optimizer):
         self.adamw_mode = 1 if adamw_mode else 0
         self.set_grad_none = set_grad_none
         if multi_tensor_applier.available:
-            from colossalai.kernel import fused_optim
+            from colossalai.kernel.op_builder import FusedOptimBuilder
+            fused_optim = FusedOptimBuilder().load()
 
             # Skip buffer
             self._dummy_overflow_buf = torch.cuda.IntTensor([0])
