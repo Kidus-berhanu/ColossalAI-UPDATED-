@@ -1,0 +1,40 @@
+import tensorflow as tf
+from colossalai import Colab
+
+def train_model(x_train, y_train):
+    """
+    Function to train the model
+    :param x_train: training data
+    :param y_train: training labels
+    :return: trained model
+    """
+    model = tf.keras.Sequential()
+    model.add(tf.keras.layers.Dense(10, input_dim=x_train.shape[1], activation='relu'))
+    model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
+
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+    model.fit(x_train, y_train, epochs=50, batch_size=32)
+
+    return model
+
+def evaluate_model(model, x_test, y_test):
+    """
+    Function to evaluate the model
+    :param model: trained model
+    :param x_test: test data
+    :param y_test: test labels
+    :return: test loss and accuracy
+    """
+    score = model.evaluate(x_test, y_test, batch_size=32)
+    print("Test loss: ", score[0])
+    print("Test accuracy: ", score[1])
+
+if __name__ == "__main__":
+    colab = Colab()
+
+    (x_train, y_train), (x_test, y_test) = colab.datasets.load_data("binary_classification_dataset")
+
+    model = train_model(x_train, y_train)
+
+    evaluate_model(model, x_test, y_test)
