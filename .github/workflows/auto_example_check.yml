@@ -25,9 +25,21 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Locate base commit
+        id: locate-base-sha
+        run: |
+            curBranch=$(git rev-parse --abbrev-ref HEAD)
+            commonCommit=$(git merge-base origin/main $curBranch)
+            echo $commonCommit
+            echo "baseSHA=$commonCommit" >> $GITHUB_OUTPUT
+
       - name: Get all changed example files
         id: changed-files
         uses: tj-actions/changed-files@v35
+        with:
+          base_sha: ${{ steps.locate-base-sha.outputs.baseSHA }}
+
       - name: setup matrix
         id: setup-matrix
         run: |
@@ -39,7 +51,7 @@ jobs:
           res=`python .github/workflows/scripts/example_checks/detect_changed_example.py --fileNameList $changedFileName`
           echo "All changed examples are $res"
 
-          if [ "$x" = "[]" ]; then
+          if [ "$res" = "[]" ]; then
             echo "anyChanged=false" >> $GITHUB_OUTPUT
             echo "matrix=null" >> $GITHUB_OUTPUT
           else
@@ -54,7 +66,8 @@ jobs:
     if: |
         github.event.pull_request.draft == false &&
         github.base_ref == 'main' &&
-        github.event.pull_request.base.repo.full_name == 'hpcaitech/ColossalAI' && github.event_name == 'pull_request'
+        github.event.pull_request.base.repo.full_name == 'hpcaitech/ColossalAI' && github.event_name == 'pull_request' &&
+        needs.detect-changed-example.outputs.anyChanged == 'true'
     name: Test the changed example
     needs: detect-changed-example
     runs-on: [self-hosted, gpu]
@@ -66,9 +79,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v3
+
       - name: Install Colossal-AI
         run: |
           pip install -v .
+
       - name: Test the example
         run: |
           example_dir=${{ matrix.directory }}
@@ -80,9 +95,8 @@ jobs:
   # This is for all files' weekly check. Specifically, this job is to find all the directories.
   matrix_preparation:
     if: |
-        github.event.pull_request.draft == false &&
-        github.base_ref == 'main' &&
-        github.event.pull_request.base.repo.full_name == 'hpcaitech/ColossalAI' && github.event_name == 'schedule'
+        github.repository == 'hpcaitech/ColossalAI' &&
+        github.event_name == 'schedule'
     name: Prepare matrix for weekly check
     runs-on: ubuntu-latest
     outputs:
@@ -90,6 +104,7 @@ jobs:
     steps:
     - name: 📚 Checkout
       uses: actions/checkout@v3
+
     - name: setup matrix
       id: setup-matrix
       run: |
@@ -100,9 +115,8 @@ jobs:
 
   weekly_check:
     if: |
-        github.event.pull_request.draft == false &&
-        github.base_ref == 'main' &&
-        github.event.pull_request.base.repo.full_name == 'hpcaitech/ColossalAI' && github.event_name == 'schedule'
+        github.repository == 'hpcaitech/ColossalAI' &&
+        github.event_name == 'schedule'
     name: Weekly check all examples
     needs: matrix_preparation
     runs-on: [self-hosted, gpu]
@@ -114,9 +128,11 @@ jobs:
     steps:
       - name: 📚 Checkout
         uses: actions/checkout@v3
+
       - name: Install Colossal-AI
         run: |
           pip install -v .
+
       - name: Traverse all files
         run: |
           example_dir=${{ matrix.diretory }}
